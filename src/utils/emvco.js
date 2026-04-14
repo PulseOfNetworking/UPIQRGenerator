@@ -24,7 +24,8 @@ export function buildEMVCoUPI({ upiId, name, amount, city = 'Kolkata' }) {
 
   const merchantInfo =
     tlv('00', 'A000000677010111') +
-    tlv('01', vpa)
+    tlv('01', vpa) +
+    tlv('02', 'UPI')  
 
   let payload = ''
   payload += tlv('00', '01')
