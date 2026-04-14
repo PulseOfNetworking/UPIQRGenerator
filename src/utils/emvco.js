@@ -1,23 +1,13 @@
-/**
- * EMVCo QR Code Payload Builder for UPI
- * Implements TLV encoding + CRC16-CCITT checksum
- */
-
-/**
- * TLV encoder — Tag Length Value
- */
 export function tlv(tag, value) {
-  const len = String(value.length).padStart(2, '0')
-  return `${tag}${len}${value}`
+  const clean = String(value)
+  const len = String([...clean].length).padStart(2, '0')
+  return `${tag}${len}${clean}`
 }
 
-/**
- * CRC16-CCITT (XModem variant, poly 0x1021, init 0xFFFF)
- */
 export function crc16(str) {
   let crc = 0xffff
   for (let i = 0; i < str.length; i++) {
-    crc ^= str.charCodeAt(i) << 8
+    crc ^= (str.charCodeAt(i) & 0xff) << 8
     for (let j = 0; j < 8; j++) {
       if (crc & 0x8000) {
         crc = ((crc << 1) ^ 0x1021) & 0xffff
@@ -27,6 +17,51 @@ export function crc16(str) {
     }
   }
   return crc.toString(16).toUpperCase().padStart(4, '0')
+}
+
+export function buildEMVCoUPI({ upiId, name, amount, city = 'Kolkata' }) {
+  const vpa = upiId.trim().toLowerCase()
+
+  const merchantInfo =
+    tlv('00', 'A000000677010111') +
+    tlv('01', vpa)
+
+  let payload = ''
+  payload += tlv('00', '01')
+  payload += tlv('01', '12')
+  payload += tlv('26', merchantInfo)
+  payload += tlv('52', '0000')
+  payload += tlv('53', '356')
+
+  const numAmount = parseFloat(amount)
+  if (!isNaN(numAmount) && numAmount > 0) {
+    payload += tlv('54', numAmount.toFixed(2))
+  }
+
+  payload += tlv('58', 'IN')
+  payload += tlv('59', (name || 'NA').trim().slice(0, 25))
+  payload += tlv('60', (city || 'Kolkata').trim().slice(0, 15))
+
+  payload += '6304'
+  payload += crc16(payload)
+
+  return payload
+}
+
+/**
+ * Validate UPI ID format (name@handle)
+ */
+export function isValidUPI(id) {
+  return /^[\w.\-]+@[\w]+$/.test((id || '').trim())
+}
+
+/**
+ * Validate amount — optional field, 0 to 1 crore
+ */
+export function isValidAmount(amount) {
+  if (!amount) return true
+  const n = Number(amount)
+  return !isNaN(n) && n >= 0 && n < 1_00_00_000
 }
 
 /**
@@ -63,53 +98,4 @@ export function buildSimpleUPI({ upiId, name, amount, note }) {
   }
 
   return uri
-}
-
-/**
- * Build an EMVCo-compliant UPI QR payload
- * Spec: NPCI UPI Linking Specs v1.6 / EMVCo QR v1.1
- */
-export function buildEMVCoUPI({ upiId, name, amount, city = 'Kolkata' }) {
-  // Tag 26 — Merchant Account Info (UPI)
-  const merchantInfo =
-    tlv('00', 'A000000677010111') + // AID/GUID for UPI
-    tlv('01', upiId.trim())         // UPI VPA (no encoding — TLV is not URL-encoded)
-
-  let payload = ''
-  payload += tlv('00', '01')           // Payload Format Indicator
-  payload += tlv('01', '12')           // Point of Initiation: 11=static, 12=dynamic
-  payload += tlv('26', merchantInfo)   // Merchant Account Info — UPI
-  payload += tlv('52', '0000')         // Merchant Category Code
-  payload += tlv('53', '356')          // Transaction Currency (INR = 356)
-
-  const numAmount = parseFloat(amount)
-  if (!isNaN(numAmount) && numAmount > 0) {
-    payload += tlv('54', numAmount.toFixed(2))
-  }
-
-  payload += tlv('58', 'IN')                                    // Country Code
-  payload += tlv('59', (name || 'NA').trim().slice(0, 25))      // Merchant Name (max 25)
-  payload += tlv('60', (city || 'Kolkata').trim().slice(0, 15)) // Merchant City (max 15)
-  payload += '6304'                    // CRC tag + length "04", checksum appended after
-
-  const checksum = crc16(payload)
-  payload += checksum
-
-  return payload
-}
-
-/**
- * Validate UPI ID format (name@handle)
- */
-export function isValidUPI(id) {
-  return /^[\w.\-]+@[\w]+$/.test((id || '').trim())
-}
-
-/**
- * Validate amount — optional field, 0 to 1 crore
- */
-export function isValidAmount(amount) {
-  if (!amount) return true
-  const n = Number(amount)
-  return !isNaN(n) && n >= 0 && n < 1_00_00_000
 }
